@@ -301,50 +301,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     saveOverrides() { save(KEYS.overrides, st.overrides); },
   };
 
-  // ---------- Claude estimates (your own API key, kept only on this device) ----------
-  const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm";
-  const getKey = () => { try { return localStorage.getItem("vm.apikey") || ""; } catch { return ""; } };
-  const MACRO_SCHEMA = {
-    type: "object",
-    properties: {
-      name: { type: "string" }, kcal: { type: "number" }, protein: { type: "number" },
-      carbs: { type: "number" }, fat: { type: "number" }, note: { type: "string" },
-    },
-    required: ["name", "kcal", "protein", "carbs", "fat", "note"],
-    additionalProperties: false,
-  };
-  let sdk = null;
-  async function estimateMacros(prompt) {
-    const apiKey = getKey();
-    if (!apiKey) throw { code: "no_key" };
-    if (!sdk) sdk = await import(SDK_URL);
-    const Anthropic = sdk.default;
-    const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-    try {
-      const msg = await client.messages.create({
-        model: "claude-opus-5-5",
-        max_tokens: 4000,
-        output_config: { effort: "low", format: { type: "json_schema", schema: MACRO_SCHEMA } },
-        messages: [{ role: "user", content: prompt }],
-      });
-      if (msg.stop_reason === "refusal") throw { code: "refused" };
-      const block = msg.content.find(b => b.type === "text");
-      if (!block) throw { code: "empty" };
-      return JSON.parse(block.text);
-    } catch (e) {
-      if (e instanceof Anthropic.AuthenticationError) throw { code: "bad_key" };
-      if (e instanceof Anthropic.RateLimitError) throw { code: "rate_limited" };
-      if (e instanceof Anthropic.APIConnectionError) throw { code: "offline" };
-      throw e && e.code ? e : { code: "failed" };
-    }
-  }
-  const estimateError = e => ({
-    no_key: "Add your Claude API key in Goals to use estimates.",
-    bad_key: "Your Claude API key was rejected. Check it in Goals.",
-    rate_limited: "Too many requests right now. Try again in a minute.",
-    offline: "No connection. Enter the numbers yourself for now.",
-    refused: "Claude declined that one. Enter the numbers yourself.",
-  }[e && e.code] || "Estimate failed. Try again.");
+  try { localStorage.removeItem("vm.apikey"); } catch {}
 
   // ---------- derived ----------
   const goals = () => st.goals || DEFAULT_GOALS;
@@ -555,15 +512,8 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   }
 
   function viewCustom() {
-    const ai = `<div class="form">
-        <label class="f" for="aiq">Describe it, Claude estimates it</label>
-        <div class="row"><input class="search grow" id="aiq" placeholder="e.g. 2 scrambled eggs and a banana" autocomplete="off">
-        <button class="btn" id="aigo">Estimate</button></div>
-        <div class="hint" id="aistatus">${getKey() ? "Check the numbers before you add." : "Needs a Claude API key (set it in Goals). You can always type the numbers below."}</div>
-      </div>`;
     const mine = st.myfoods.length ? `<section class="sec"><h3 class="sech">Saved foods<span>${st.myfoods.length}</span></h3><div class="cards">${st.myfoods.map(myFoodCard).join("")}</div></section>` : "";
-    return `${ai}
-      <form class="form" id="manual" novalidate>
+    return `<form class="form" id="manual" novalidate>
         <label class="f" for="mname">Food<input id="mname" required placeholder="Protein bar, latte, snack…" autocomplete="off"></label>
         <div class="grid4">
           <label class="f" for="mk">Cal<input id="mk" type="number" inputmode="decimal" min="0" placeholder="0"></label>
@@ -625,12 +575,6 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         <button class="btn" type="submit">Save goals</button>
         <div class="note">A day counts as "Goal met" when protein reaches its goal and calories land within 10% of theirs.</div>
       </form>
-      <form class="form" id="keyform" novalidate>
-        <h3 class="formh">Claude estimates</h3>
-        <label class="f" for="apikey">Claude API key<input id="apikey" type="password" autocomplete="off" spellcheck="false" placeholder="${getKey() ? "Saved on this phone" : "sk-ant-…"}"></label>
-        <div class="hint">Optional. Powers "Describe it" on the Add tab and re-estimating menu items. The key stays on this phone and is sent only to Anthropic.</div>
-        <div class="row"><button class="btn grow" type="submit">Save key</button>${getKey() ? `<button class="btn ghost" type="button" id="forgetkey">Remove key</button>` : ""}</div>
-      </form>
       <section class="form">
         <h3 class="formh">Backup</h3>
         <div class="hint">Your log lives only on this phone. Save a backup now and then, especially before clearing Safari data or switching phones.</div>
@@ -681,8 +625,6 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         addEntry({ name, k, p, c, f, qty, meal, src: "custom" });
       };
     }
-    const ai = $("#aigo");
-    if (ai) ai.onclick = runEstimate;
     const gf = $("#goalform");
     if (gf) {
       const calc = () => { const p = +$("#gp").value || 0, c = +$("#gc").value || 0, f = +$("#gf").value || 0; $("#gcalc").textContent = `Your protein, carb and fat goals add up to ${fmt(p * 4 + c * 4 + f * 9)} cal.`; };
@@ -692,18 +634,6 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         st.goals = { k: +$("#gk").value || 0, p: +$("#gp").value || 0, c: +$("#gc").value || 0, f: +$("#gf").value || 0 };
         store.saveGoals(); toast("Goals saved"); render();
       };
-    }
-    const kf = $("#keyform");
-    if (kf) {
-      kf.onsubmit = e => {
-        e.preventDefault();
-        const k = $("#apikey").value.trim();
-        if (!k) { $("#apikey").focus(); return; }
-        try { localStorage.setItem("vm.apikey", k); toast("Key saved on this phone"); } catch { toast("Couldn't save the key."); }
-        render();
-      };
-      const fk = $("#forgetkey");
-      if (fk) fk.onclick = () => { try { localStorage.removeItem("vm.apikey"); } catch {} toast("Key removed"); render(); };
     }
     const ex = $("#export");
     if (ex) ex.onclick = () => {
@@ -728,26 +658,6 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     };
   }
 
-  async function runEstimate() {
-    const box = $("#aiq"), status = $("#aistatus"), btn = $("#aigo");
-    const text = box.value.trim();
-    if (!text) { box.focus(); return; }
-    btn.disabled = true; status.textContent = "Estimating…";
-    try {
-      const r = await estimateMacros(
-        `Estimate the nutrition for this food a university student in Vancouver ate: "${text.slice(0, 400)}". ` +
-        `Use typical Canadian portions unless a size is given. "name" is a short food name; ` +
-        `"note" is one short sentence naming the portion you assumed.`);
-      const n = x => Math.max(0, Math.round(Number(x) || 0));
-      $("#mname").value = String(r.name || text).slice(0, 80);
-      $("#mk").value = n(r.kcal); $("#mp").value = n(r.protein); $("#mc").value = n(r.carbs); $("#mf").value = n(r.fat);
-      $("#manual").dispatchEvent(new Event("input"));
-      status.textContent = (r.note ? String(r.note).slice(0, 160) + " " : "") + "Adjust below, then add.";
-    } catch (e) {
-      status.textContent = estimateError(e);
-    } finally { btn.disabled = false; }
-  }
-
   function addEntry(e) {
     const entry = { id: uid(), t: Date.now(), ...e };
     st.days = { ...st.days, [st.date]: [...entriesFor(st.date), entry] };
@@ -767,7 +677,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 
   // One sheet for adding a menu food, a saved food, or editing a logged entry.
-  function portionSheet({ title, unit, base, ing, qty = 1, meal = guessMeal(), onSave, onDelete, saveLabel, rememberable, reestimate }) {
+  function portionSheet({ title, unit, base, ing, qty = 1, meal = guessMeal(), onSave, onDelete, saveLabel, rememberable }) {
     let q = qty, m = { ...base };
     const has = base && base.k != null;
     sheet(`
@@ -784,7 +694,6 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
           <label class="f" for="ef">Fat<input id="ef" type="number" inputmode="decimal" value="${has ? r1(m.f) : ""}"></label>
         </div>
         ${rememberable ? `<label class="check" style="margin-top:10px"><input type="checkbox" id="remember" checked> Use these numbers whenever this dish is served</label>` : ""}
-        ${reestimate ? `<button class="btn ghost" type="button" id="reest" style="margin-top:10px">Ask Claude to re-estimate from ingredients</button><div class="hint" id="reestatus"></div>` : ""}
       </details>
       ${ing ? `<div class="ing">${esc(ing)}</div>` : ""}
       <div class="row"><button class="btn grow" id="save">${saveLabel}</button>${onDelete ? `<button class="btn danger" id="del">Remove</button>` : ""}<button class="btn ghost" id="cancel">Cancel</button></div>
@@ -803,16 +712,6 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
       $("#edit", el).oninput = e => { if (e.target.id !== "remember") { m = readEdit(); paint(); } };
       $("#cancel", el).onclick = closeSheet;
       if (onDelete) $("#del", el).onclick = onDelete;
-      const re = $("#reest", el);
-      if (re) re.onclick = async () => {
-        re.disabled = true; $("#reestatus", el).textContent = "Estimating…";
-        try {
-          const r = await estimateMacros(`A UBC dining hall (Gather, Place Vanier) serves "${title}"${unit ? ` as ${unit}` : " as one portion"}. Ingredients: ${(ing || "not listed").slice(0, 600)}\nEstimate nutrition for one typical dining-hall serving. "name" is the food name; "note" is one short sentence on the portion you assumed.`);
-          $("#ek", el).value = r0(r.kcal); $("#ep", el).value = r1(r.protein); $("#ec", el).value = r1(r.carbs); $("#ef", el).value = r1(r.fat);
-          m = readEdit(); paint(); $("#reestatus", el).textContent = "Updated. Save to keep it.";
-        } catch (err) { $("#reestatus", el).textContent = estimateError(err); }
-        finally { re.disabled = false; }
-      };
       $("#save", el).onclick = () => {
         const edited = $("#edit", el).open ? readEdit() : m;
         const remember = $("#remember", el);
@@ -828,7 +727,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     const base = foodMacros(fid, f);
     const now = guessMeal();
     portionSheet({
-      title: f.n, unit: f.u, base, ing: f.ing, saveLabel: "Add", rememberable: true, reestimate: true,
+      title: f.n, unit: f.u, base, ing: f.ing, saveLabel: "Add", rememberable: true,
       meal: DRINK_WORDS.test(f.n) ? "Drinks" : st.menuMeal === "Breakfast" ? "Breakfast" : st.menuMeal === "Baked Goods & Desserts" ? (now === "Breakfast" ? "Breakfast" : "Snack") : (now === "Breakfast" ? "Lunch" : now),
       onSave: ({ macros, qty, meal, remember }) => {
         const changed = !base || ["k", "p", "c", "f"].some(k => Math.abs((base[k] || 0) - macros[k]) > 0.01);
