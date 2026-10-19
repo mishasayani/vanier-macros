@@ -1,5 +1,5 @@
 // Network first so a new menu or app version shows up right away; cached copy when offline.
-const CACHE = "vanier-macros-v1";
+const CACHE = "vanier-macros-v2";
 const SHELL = ["./", "index.html", "menu.json", "manifest.webmanifest", "icon-192.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
