@@ -465,7 +465,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   }
   function myFoodCard(f) {
     return `<button class="card" data-myfood="${esc(f.id)}">
-      <div style="min-width:0"><div class="name">${esc(f.name)}</div><div class="serv">Saved food</div></div>
+      <div style="min-width:0"><div class="name">${esc(f.name)}</div><div class="serv">${esc(f.meal || "Saved food")} · tap to add or edit</div></div>
       <span class="add" aria-hidden="true">+</span>${macroCells(f)}</button>`;
   }
 
@@ -621,7 +621,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         if (!k && (p || c || f)) k = p * 4 + c * 4 + f * 9;
         const qty = +$("#mqty").value || 1;
         const meal = $("#mmeal").value;
-        if ($("#msave").checked) { st.myfoods = [{ id: uid(), name, k, p, c, f }, ...st.myfoods.filter(x => x.name !== name)]; store.saveMyFoods(); }
+        if ($("#msave").checked) { st.myfoods = [{ id: uid(), name, k, p, c, f, meal }, ...st.myfoods.filter(x => x.name !== name)]; store.saveMyFoods(); }
         addEntry({ name, k, p, c, f, qty, meal, src: "custom" });
       };
     }
@@ -677,11 +677,11 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 
   // One sheet for adding a menu food, a saved food, or editing a logged entry.
-  function portionSheet({ title, unit, base, ing, qty = 1, meal = guessMeal(), onSave, onDelete, saveLabel, rememberable }) {
+  function portionSheet({ title, unit, base, ing, qty = 1, meal = guessMeal(), onSave, onDelete, saveLabel, rememberable, editName, extra }) {
     let q = qty, m = { ...base };
     const has = base && base.k != null;
     sheet(`
-      <div><h4>${esc(title)}</h4><div class="unit">${unit ? "1 serving = " + esc(unit) : ""}</div></div>
+      ${editName ? `<label class="f" for="sname">Name<input id="sname" value="${esc(title)}" autocomplete="off"></label>` : `<div><h4>${esc(title)}</h4><div class="unit">${unit ? "1 serving = " + esc(unit) : ""}</div></div>`}
       <div class="mac4 num" id="mac"></div>
       <div class="stepper"><button class="iconbtn" id="minus" aria-label="Less">−</button><div class="q num" id="qv"></div><button class="iconbtn" id="plus" aria-label="More">+</button>
         <div class="pills">${[0.5, 1, 1.5, 2].map(x => `<button data-q="${x}">${x}</button>`).join("")}</div></div>
@@ -696,7 +696,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         ${rememberable ? `<label class="check" style="margin-top:10px"><input type="checkbox" id="remember" checked> Use these numbers whenever this dish is served</label>` : ""}
       </details>
       ${ing ? `<div class="ing">${esc(ing)}</div>` : ""}
-      <div class="row"><button class="btn grow" id="save">${saveLabel}</button>${onDelete ? `<button class="btn danger" id="del">Remove</button>` : ""}<button class="btn ghost" id="cancel">Cancel</button></div>
+      <div class="row"><button class="btn grow" id="save">${saveLabel}</button>${extra ? `<button class="btn ghost" id="extra">${esc(extra.label)}</button>` : ""}${onDelete ? `<button class="btn danger" id="del">Remove</button>` : ""}<button class="btn ghost" id="cancel">Cancel</button></div>
     `, el => {
       const readEdit = () => ({ k: +$("#ek", el).value || 0, p: +$("#ep", el).value || 0, c: +$("#ec", el).value || 0, f: +$("#ef", el).value || 0 });
       const paint = () => {
@@ -712,10 +712,14 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
       $("#edit", el).oninput = e => { if (e.target.id !== "remember") { m = readEdit(); paint(); } };
       $("#cancel", el).onclick = closeSheet;
       if (onDelete) $("#del", el).onclick = onDelete;
+      if (extra) $("#extra", el).onclick = extra.onClick;
       $("#save", el).onclick = () => {
         const edited = $("#edit", el).open ? readEdit() : m;
         const remember = $("#remember", el);
-        onSave({ macros: edited, qty: q, meal: $("#smeal", el).value, remember: remember ? remember.checked : false });
+        const nameEl = $("#sname", el);
+        const name = nameEl ? nameEl.value.trim() : title;
+        if (!name) { nameEl.focus(); toast("Give the food a name."); return; }
+        onSave({ macros: edited, qty: q, meal: $("#smeal", el).value, remember: remember ? remember.checked : false, name });
       };
       paint();
     });
@@ -741,9 +745,39 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     const f = st.myfoods.find(x => x.id === id);
     if (!f) return;
     portionSheet({
-      title: f.name, base: f, saveLabel: "Add", meal: mealFor(f.name),
+      title: f.name, base: f, saveLabel: "Add", meal: f.meal || mealFor(f.name),
       onSave: ({ macros, qty, meal }) => addEntry({ name: f.name, ...macros, qty, meal, src: "custom" }),
-      onDelete: () => { st.myfoods = st.myfoods.filter(x => x.id !== id); store.saveMyFoods(); closeSheet(); toast("Removed from saved foods"); render(); },
+      extra: { label: "Edit food", onClick: () => editMyFood(id) },
+    });
+  }
+
+  // Change a saved food's name, macros or category. Past log entries keep their own copy.
+  function editMyFood(id) {
+    const f = st.myfoods.find(x => x.id === id);
+    if (!f) return;
+    sheet(`
+      <h4>Edit saved food</h4>
+      <label class="f" for="xname">Name<input id="xname" value="${esc(f.name)}" autocomplete="off"></label>
+      <div class="grid4">
+        <label class="f" for="xk">Cal<input id="xk" type="number" inputmode="decimal" min="0" value="${r0(f.k)}"></label>
+        <label class="f" for="xp">Protein<input id="xp" type="number" inputmode="decimal" min="0" value="${r1(f.p)}"></label>
+        <label class="f" for="xc">Carbs<input id="xc" type="number" inputmode="decimal" min="0" value="${r1(f.c)}"></label>
+        <label class="f" for="xf">Fat<input id="xf" type="number" inputmode="decimal" min="0" value="${r1(f.f)}"></label>
+      </div>
+      <label class="f" for="xmeal">Category<select id="xmeal">${MEALS.map(m => `<option ${m === (f.meal || mealFor(f.name)) ? "selected" : ""}>${m}</option>`).join("")}</select></label>
+      <div class="hint">Numbers are for one serving. Changes apply the next time you add this food; anything already logged stays as it was.</div>
+      <div class="row"><button class="btn grow" id="xsave">Save</button><button class="btn danger" id="xdel">Delete</button><button class="btn ghost" id="xcancel">Cancel</button></div>
+    `, el => {
+      $("#xcancel", el).onclick = closeSheet;
+      $("#xdel", el).onclick = () => { st.myfoods = st.myfoods.filter(x => x.id !== id); store.saveMyFoods(); closeSheet(); toast("Deleted from saved foods"); render(); };
+      $("#xsave", el).onclick = () => {
+        const name = $("#xname", el).value.trim();
+        if (!name) { $("#xname", el).focus(); toast("Give the food a name."); return; }
+        const num = s => Math.max(0, +$(s, el).value || 0);
+        const upd = { ...f, name, k: num("#xk"), p: num("#xp"), c: num("#xc"), f: num("#xf"), meal: $("#xmeal", el).value };
+        st.myfoods = st.myfoods.map(x => x.id === id ? upd : x);
+        store.saveMyFoods(); closeSheet(); toast("Saved food updated"); render();
+      };
     });
   }
 
@@ -752,9 +786,9 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     if (!e) return;
     const f = e.fid && st.menu ? st.menu.foods[e.fid] : null;
     portionSheet({
-      title: e.name, unit: f && f.u, base: e, qty: e.qty || 1, meal: e.meal, saveLabel: "Save changes",
-      onSave: ({ macros, qty, meal }) => {
-        st.days = { ...st.days, [st.date]: entriesFor(st.date).map(x => x.id === id ? { ...x, ...macros, qty, meal } : x) };
+      title: e.name, unit: f && f.u, base: e, qty: e.qty || 1, meal: e.meal, saveLabel: "Save changes", editName: e.src === "custom",
+      onSave: ({ macros, qty, meal, name }) => {
+        st.days = { ...st.days, [st.date]: entriesFor(st.date).map(x => x.id === id ? { ...x, ...macros, qty, meal, name } : x) };
         store.saveDay(); closeSheet(); toast("Updated"); render();
       },
       onDelete: () => {
