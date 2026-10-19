@@ -250,7 +250,9 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   const shift = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return iso(d); };
   const todayISO = () => iso(new Date());
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const MEALS = ["Breakfast", "Lunch", "Dinner", "Snack"];
+  const MEALS = ["Breakfast", "Lunch", "Dinner", "Snack", "Drinks"];
+  const DRINK_WORDS = /\b(milk|chocolate milk|latte|coffee|americano|cappuccino|espresso|tea|chai|matcha|juice|smoothie|shake|soda|pop|coke|pepsi|sprite|lemonade|kombucha|water|boba|bubble tea|hot chocolate|gatorade|powerade|energy drink|red bull|monster)\b/i;
+  const mealFor = name => DRINK_WORDS.test(name || "") ? "Drinks" : guessMeal();
   const MENU_MEALS = [["Breakfast", "Breakfast"], ["Lunch & Dinner", "Lunch & Dinner"], ["Baked Goods & Desserts", "Bakery"]];
   const DEFAULT_GOALS = { k: 2400, p: 150, c: 270, f: 80 };
   const MACROS = [
@@ -281,6 +283,17 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   st.goals = load(KEYS.goals);
   st.myfoods = load(KEYS.myfoods) || [];
   st.overrides = load(KEYS.overrides) || {};
+  // One-time move: chocolate milk logged under Snack goes to the new Drinks category.
+  try {
+    if (!localStorage.getItem("vm.moved.drinks")) {
+      let moved = 0;
+      for (const d of Object.keys(st.days)) {
+        st.days[d] = st.days[d].map(e => (e.meal === "Snack" && /chocolate milk/i.test(e.name)) ? (moved++, { ...e, meal: "Drinks" }) : e);
+      }
+      if (moved) save(KEYS.days, st.days);
+      localStorage.setItem("vm.moved.drinks", "1");
+    }
+  } catch {}
   const store = {
     saveDay() { save(KEYS.days, st.days); },
     saveGoals() { save(KEYS.goals, st.goals); },
@@ -648,7 +661,13 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         const p = +$("#mp").value || 0, c = +$("#mc").value || 0, f = +$("#mf").value || 0;
         $("#mcalc").textContent = (p || c || f) ? `Macros add up to about ${fmt(p * 4 + c * 4 + f * 9)} cal.` : "";
       };
-      mf.oninput = calc; calc();
+      let mealTouched = false;
+      $("#mmeal").onchange = () => { mealTouched = true; };
+      mf.oninput = e => {
+        calc();
+        if (e && e.target && e.target.id === "mname" && !mealTouched) $("#mmeal").value = mealFor($("#mname").value);
+      };
+      calc();
       mf.onsubmit = e => {
         e.preventDefault();
         const name = $("#mname").value.trim();
@@ -810,7 +829,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     const now = guessMeal();
     portionSheet({
       title: f.n, unit: f.u, base, ing: f.ing, saveLabel: "Add", rememberable: true, reestimate: true,
-      meal: st.menuMeal === "Breakfast" ? "Breakfast" : st.menuMeal === "Baked Goods & Desserts" ? (now === "Breakfast" ? "Breakfast" : "Snack") : (now === "Breakfast" ? "Lunch" : now),
+      meal: DRINK_WORDS.test(f.n) ? "Drinks" : st.menuMeal === "Breakfast" ? "Breakfast" : st.menuMeal === "Baked Goods & Desserts" ? (now === "Breakfast" ? "Breakfast" : "Snack") : (now === "Breakfast" ? "Lunch" : now),
       onSave: ({ macros, qty, meal, remember }) => {
         const changed = !base || ["k", "p", "c", "f"].some(k => Math.abs((base[k] || 0) - macros[k]) > 0.01);
         if (changed && remember) { st.overrides = { ...st.overrides, [fid]: macros }; store.saveOverrides(); }
@@ -823,7 +842,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     const f = st.myfoods.find(x => x.id === id);
     if (!f) return;
     portionSheet({
-      title: f.name, base: f, saveLabel: "Add",
+      title: f.name, base: f, saveLabel: "Add", meal: mealFor(f.name),
       onSave: ({ macros, qty, meal }) => addEntry({ name: f.name, ...macros, qty, meal, src: "custom" }),
       onDelete: () => { st.myfoods = st.myfoods.filter(x => x.id !== id); store.saveMyFoods(); closeSheet(); toast("Removed from saved foods"); render(); },
     });
