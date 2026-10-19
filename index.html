@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Vanier Macros</title>
+<title>Macro Tracker</title>
 <meta name="theme-color" content="#0f5b4a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Macros">
+<meta name="apple-mobile-web-app-title" content="Macro Tracker">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="robots" content="noindex, nofollow">
 <link rel="manifest" href="manifest.webmanifest">
@@ -70,11 +70,11 @@ button { cursor: pointer; }
 }
 #view { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.brand { font-family: var(--display); font-weight: 850; font-stretch: 75%; font-size: 22px; letter-spacing: .01em; text-transform: uppercase; line-height: 1; }
+.brand { font-family: var(--display); font-weight: 850; font-stretch: 70%; font-size: clamp(18px, 5.6vw, 22px); white-space: nowrap; min-width: 0; letter-spacing: .01em; text-transform: uppercase; line-height: 1; }
 .brand small { display: block; font-family: var(--body); font-weight: 500; font-size: 12px; letter-spacing: .02em; color: var(--muted); text-transform: none; margin-top: 3px; }
 .datenav { display: flex; align-items: center; gap: 4px; }
 .iconbtn { border: 1px solid var(--line); background: var(--card); border-radius: 999px; width: 36px; height: 36px; display: grid; place-items: center; font-size: 18px; line-height: 1; flex: none; }
-.datelabel { min-width: 92px; text-align: center; }
+.datelabel { min-width: 82px; text-align: center; }
 .datelabel button { background: none; border: 0; padding: 4px 6px; font-weight: 700; font-size: 14px; }
 
 /* Progress */
@@ -215,7 +215,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
 <body>
 <div class="wrap" id="app">
   <header class="top">
-    <div class="brand">Vanier Macros<small>Gather · Place Vanier</small></div>
+    <div class="brand">Macro Tracker<small>Gather · Place Vanier</small></div>
     <div class="datenav">
       <button class="iconbtn" id="prev" aria-label="Previous day">‹</button>
       <div class="datelabel"><button id="datebtn" aria-label="Jump to today"></button></div>
@@ -292,6 +292,14 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
       }
       if (moved) save(KEYS.days, st.days);
       localStorage.setItem("vm.moved.drinks", "1");
+    }
+    if (!localStorage.getItem("vm.added.milk225")) {
+      if (!st.myfoods.some(f => /^milk.*225/i.test(f.name))) {
+        // 2% milk, Canadian label values scaled from 250 ml (130 cal, 9 g protein, 12 g carbs, 5 g fat).
+        st.myfoods = [{ id: uid(), name: "Milk, 2% (225 ml)", k: 117, p: 8.1, c: 10.8, f: 4.5, meal: "Drinks" }, ...st.myfoods];
+        save(KEYS.myfoods, st.myfoods);
+      }
+      localStorage.setItem("vm.added.milk225", "1");
     }
   } catch {}
   const store = {
@@ -527,7 +535,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         </div>
         <div class="hint" id="mcalc"></div>
         <label class="check"><input type="checkbox" id="msave"> Save to my foods for next time</label>
-        <button class="btn" type="submit">Add to ${st.date === todayISO() ? "today" : "this day"}</button>
+        <div class="row"><button class="btn grow" type="submit">Add to ${st.date === todayISO() ? "today" : "this day"}</button><button class="btn ghost" type="button" id="mclear">Clear</button></div>
       </form>
       ${mine}`;
   }
@@ -605,12 +613,25 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         const p = +$("#mp").value || 0, c = +$("#mc").value || 0, f = +$("#mf").value || 0;
         $("#mcalc").textContent = (p || c || f) ? `Macros add up to about ${fmt(p * 4 + c * 4 + f * 9)} cal.` : "";
       };
-      let mealTouched = false;
-      $("#mmeal").onchange = () => { mealTouched = true; };
+      const fields = ["mname", "mk", "mp", "mc", "mf", "mmeal", "mqty"];
+      const draft = load("vm.draft");
+      let mealTouched = !!(draft && draft.mealTouched);
+      if (draft) {
+        fields.forEach(id => { if (draft[id] != null) $("#" + id).value = draft[id]; });
+        $("#msave").checked = !!draft.msave;
+      }
+      const saveDraft = () => {
+        const d = { mealTouched, msave: $("#msave").checked };
+        fields.forEach(id => { d[id] = $("#" + id).value; });
+        try { localStorage.setItem("vm.draft", JSON.stringify(d)); } catch {}
+      };
+      $("#mmeal").onchange = () => { mealTouched = true; saveDraft(); };
       mf.oninput = e => {
         calc();
         if (e && e.target && e.target.id === "mname" && !mealTouched) $("#mmeal").value = mealFor($("#mname").value);
+        saveDraft();
       };
+      $("#msave").onchange = saveDraft;
       calc();
       mf.onsubmit = e => {
         e.preventDefault();
@@ -622,9 +643,12 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         const qty = +$("#mqty").value || 1;
         const meal = $("#mmeal").value;
         if ($("#msave").checked) { st.myfoods = [{ id: uid(), name, k, p, c, f, meal }, ...st.myfoods.filter(x => x.name !== name)]; store.saveMyFoods(); }
+        try { localStorage.removeItem("vm.draft"); } catch {}
         addEntry({ name, k, p, c, f, qty, meal, src: "custom" });
       };
     }
+    const mc = $("#mclear");
+    if (mc) mc.onclick = () => { try { localStorage.removeItem("vm.draft"); } catch {} render(); };
     const gf = $("#goalform");
     if (gf) {
       const calc = () => { const p = +$("#gp").value || 0, c = +$("#gc").value || 0, f = +$("#gf").value || 0; $("#gcalc").textContent = `Your protein, carb and fat goals add up to ${fmt(p * 4 + c * 4 + f * 9)} cal.`; };
@@ -654,7 +678,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
         st.days = data.days || {}; st.goals = data.goals || null; st.myfoods = data.myfoods || []; st.overrides = data.overrides || {};
         store.saveDay(); store.saveGoals(); store.saveMyFoods(); store.saveOverrides();
         toast(`Restored ${Object.keys(st.days).length} days`); render();
-      } catch { toast("That file isn't a Vanier Macros backup."); }
+      } catch { toast("That file isn't a Macro Tracker backup."); }
     };
   }
 
@@ -813,7 +837,13 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   $("#datebtn").onclick = () => { st.date = todayISO(); render(); };
 
   // ---------- boot ----------
-  const setMenu = m => { st.menu = m; st.staples = computeStaples(m); render(); };
+  // A refresh only redraws the menu list itself, so forms and open sheets are never wiped.
+  const setMenu = (m, refresh) => {
+    if (refresh && st.menu && m.built === st.menu.built) return;
+    st.menu = m; st.staples = computeStaples(m);
+    if (!refresh) render();
+    else if (st.tab === "menu" && $("#menubody")) $("#menubody").innerHTML = menuBody();
+  };
   render();
   fetch("menu.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw 0; return r.json(); })
     .then(setMenu)
@@ -823,7 +853,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   // Pick up a new day's menu when the app comes back to the foreground.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
-    fetch("menu.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).then(m => { if (m) setMenu(m); }).catch(() => {});
+    fetch("menu.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).then(m => { if (m) setMenu(m, true); }).catch(() => {});
   });
 })();
 </script>

@@ -1,6 +1,6 @@
 {
-  "name": "Vanier Macros",
-  "short_name": "Macros",
+  "name": "Macro Tracker",
+  "short_name": "Macro Tracker",
   "description": "Macro tracker for the Gather dining hall at Place Vanier, UBC.",
   "start_url": "./",
   "scope": "./",

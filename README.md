@@ -1,4 +1,4 @@
-# Vanier Macros
+# Macro Tracker
 
 A personal macro tracker for Gather, the Place Vanier dining hall at UBC. It runs as a website you add to your iPhone Home Screen.
 
